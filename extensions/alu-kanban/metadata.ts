@@ -1,0 +1,61 @@
+export const KANBAN_ACTIONS = [
+  "list_boards",
+  "get_board",
+  "summary",
+  "list_lists",
+  "list_labels",
+  "list_cards",
+  "get_card",
+  "my_tasks",
+  "create_card",
+  "create_cards",
+  "update_card",
+  "edit_card_description",
+  "delete_card",
+  "move_card",
+  "set_card_completed",
+  "get_checklist",
+  "reorder_checklist",
+  "add_card_label",
+  "remove_card_label",
+  "list_comments",
+  "create_comment",
+  "list_attachments",
+  "upload_attachment",
+  "download_attachment",
+  "delete_attachment",
+] as const;
+
+export type KanbanAction = typeof KANBAN_ACTIONS[number];
+
+export const ENGINEER_CREATE_GUIDELINE = "Engineers creating discovered work should use the configured create-stage default when available; otherwise pass board_id with an explicit Backlog list_name/list_id. The description must include discovery context plus why it needs separate scheduling. Assignment does not authorize starting the card.";
+
+export const WORKFLOW_STAGE_GUIDELINE = "workflow_stage is not a built-in enum: use it only for a stage mapped by the current trusted project config; otherwise pass board_id with list_name/list_id.";
+
+export const KANBAN_ACTION_HELP: Record<KanbanAction, string> = {
+  list_boards: "List visible boards",
+  get_board: "Read one board with its lists and cards",
+  summary: "Read due, overdue, unassigned, list-count, and checklist totals for a board",
+  list_lists: "List board lists, including their archived state",
+  list_labels: "List the Board label catalog with canonical colors and usage counts",
+  list_cards: "Query active cards, optionally by workflow stage, list, assignee, label, or text",
+  get_card: "Read one card by ID; compact mode keeps its description",
+  my_tasks: "List cards assigned to the authenticated role account",
+  create_card: "Create a card, optionally with nested checklist items; configured defaults and automatic self-assignment may apply",
+  create_cards: "Create 1-50 cards in one active list, preserving array order and assigning contiguous positions",
+  update_card: "Update card fields and batch create/update/complete/destroy nested checklist items without moving the card",
+  edit_card_description: "Replace one unique exact description fragment and stop if the card changed before submission",
+  delete_card: "Delete a card after interactive confirmation (assistant only)",
+  move_card: "Move a card to an active list; this does not mark it completed",
+  set_card_completed: "Explicitly set or clear card completion; this does not move it",
+  get_checklist: "Read checklist progress and items",
+  reorder_checklist: "Atomically replace checklist order using the complete ordered item_ids array",
+  add_card_label: "Atomically add a canonical Board label or create a custom label",
+  remove_card_label: "Atomically remove one label without replacing the card label set",
+  list_comments: "List a bounded page of append-only card comments",
+  create_comment: "Append one user-directed checkpoint comment without rewriting the card description",
+  list_attachments: "List card attachment metadata",
+  upload_attachment: "Upload a local file up to 10 MB",
+  download_attachment: "Download an attachment to a local path",
+  delete_attachment: "Delete an attachment after confirmation",
+};

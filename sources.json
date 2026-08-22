@@ -1,0 +1,33 @@
+{
+  "sources": [
+    {
+      "name": "Pi Web Access",
+      "source": "npm:pi-web-access",
+      "kind": "npm"
+    },
+    {
+      "name": "Pi Visionizer",
+      "source": "git:github.com/Oyaxira/pi-visionizer",
+      "kind": "git",
+      "repositoryUrl": "https://github.com/Oyaxira/pi-visionizer"
+    },
+    {
+      "name": "Pi Browser CDP",
+      "source": "git:github.com/Oyaxira/pi-browser-cdp",
+      "kind": "git",
+      "repositoryUrl": "https://github.com/Oyaxira/pi-browser-cdp"
+    },
+    {
+      "name": "Pi Subagents",
+      "source": "git:github.com/Oyaxira/pi-subagents@b5168b31d7482c13a40c456a4d5bce345967b345",
+      "kind": "git",
+      "repositoryUrl": "https://github.com/Oyaxira/pi-subagents"
+    },
+    {
+      "name": "Pi ALU Sol Tuner",
+      "source": "git:github.com/aruru-project/pi-alu-sol-tuner",
+      "kind": "git",
+      "repositoryUrl": "https://github.com/aruru-project/pi-alu-sol-tuner"
+    }
+  ]
+}
