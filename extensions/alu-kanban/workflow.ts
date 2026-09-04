@@ -252,11 +252,9 @@ export async function prepareKanbanAction(
   }
 
   let assigneeName: string | undefined;
-  if (input.assignee !== undefined) {
-    if (input.action !== "list_cards") throw new Error("assignee is only supported by list_cards");
+  const assignee = input.assignee?.trim();
+  if (input.action === "list_cards" && assignee) {
     if (input.assignee_id !== undefined) throw new Error("assignee and assignee_id are mutually exclusive");
-    const assignee = input.assignee.trim();
-    if (!assignee) throw new Error("assignee cannot be empty");
     if (assignee.toLowerCase() === "me") {
       const me = asRecord(await client.json("GET", "/me", undefined, signal), "Kanban API returned an invalid user");
       const id = Number(me.id);

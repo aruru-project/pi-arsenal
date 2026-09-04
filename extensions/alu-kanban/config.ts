@@ -1,4 +1,4 @@
-import { constants, type Stats } from "node:fs";
+import { constants } from "node:fs";
 import { lstat, open, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -36,7 +36,7 @@ function errorCode(error: unknown): string | undefined {
 }
 
 function assertOwnedMode(
-  stats: Stats,
+  stats: Awaited<ReturnType<typeof lstat>>,
   expectedMode: number,
   kind: "directory" | "file",
 ): void {
@@ -85,8 +85,8 @@ function parseProductionCredentials(raw: string): Map<string, string> {
 async function readProductionCredentials(): Promise<Map<string, string> | undefined> {
   const directoryPath = join(homedir(), PRODUCTION_CONFIG_DIR);
   const filePath = join(directoryPath, PRODUCTION_CONFIG_FILE);
-  let directoryStats: Stats;
-  let fileStats: Stats;
+  let directoryStats: Awaited<ReturnType<typeof lstat>>;
+  let fileStats: Awaited<ReturnType<typeof lstat>>;
 
   try {
     directoryStats = await lstat(directoryPath);

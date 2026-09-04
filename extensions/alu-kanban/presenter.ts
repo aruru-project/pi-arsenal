@@ -233,20 +233,19 @@ function mutationReceipt(input: KanbanToolInput, payload: unknown): Record<strin
 
 function batchMutationReceipt(input: KanbanToolInput, payload: unknown): Record<string, unknown> {
   const response = asRecord(payload, "Kanban API returned an invalid batch mutation response");
-  const cards = response.cards;
-  if (!Array.isArray(cards)) throw new Error("Kanban batch mutation response is missing cards");
+  if (!Array.isArray(response.cards)) throw new Error("Kanban batch mutation response is missing cards");
   const requested = input.cards ?? [];
-  const countMatches = requested.length === cards.length;
-  const positions = cards.map((card) => Number(asRecord(card, "Kanban API returned an invalid card").position));
+  const countMatches = requested.length === response.cards.length;
+  const positions = response.cards.map((card) => Number(asRecord(card, "Kanban API returned an invalid card").position));
   const positionsMatch = positions.every((position, index) => {
     return Number.isInteger(position) && position > 0 && (index === 0 || position === positions[index - 1] + 1);
   });
-  const receipts = requested.slice(0, cards.length).map((card, index) => mutationReceipt({
+  const receipts = requested.slice(0, response.cards.length).map((card, index) => mutationReceipt({
     action: "create_card",
     board_id: input.board_id,
     list_id: input.list_id,
     ...card,
-  }, cards[index]));
+  }, response.cards[index]));
   const cardsMatch = countMatches && receipts.every((receipt) => receipt.ok === true);
 
   return {
@@ -254,7 +253,7 @@ function batchMutationReceipt(input: KanbanToolInput, payload: unknown): Record<
     action: input.action,
     verified: { count: countMatches, cards: cardsMatch, positions: positionsMatch },
     mismatches: [
-      ...(countMatches ? [] : [{ field: "count", requested: requested.length, persisted: cards.length }]),
+      ...(countMatches ? [] : [{ field: "count", requested: requested.length, persisted: response.cards.length }]),
       ...(positionsMatch ? [] : [{ field: "positions", requested: "contiguous ascending positions", persisted: positions }]),
       ...receipts.flatMap((receipt, index) => {
         const mismatches = receipt.mismatches as Array<Record<string, unknown>>;
@@ -262,7 +261,7 @@ function batchMutationReceipt(input: KanbanToolInput, payload: unknown): Record<
       }),
     ],
     persisted: {
-      total: cards.length,
+      total: response.cards.length,
       cards: receipts.map((receipt) => receipt.persisted),
     },
   };
