@@ -27,7 +27,7 @@ Before bootstrapping, identify the target operating system, shell, filesystem pa
    pi install git:github.com/Oyaxira/pi-visionizer
    pi install git:github.com/Oyaxira/pi-browser-cdp
    pi install git:github.com/Oyaxira/pi-subagents@b5168b31d7482c13a40c456a4d5bce345967b345
-   pi install git:github.com/aruru-project/pi-alu-sol-tuner
+   pi install git:github.com/aruru-project/pi-alu-agent-tuner
    ```
 
 3. Reload Pi's packages if the current runtime provides a reload action; otherwise exit and restart Pi.

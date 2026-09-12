@@ -24,10 +24,10 @@
       "repositoryUrl": "https://github.com/Oyaxira/pi-subagents"
     },
     {
-      "name": "Pi ALU Sol Tuner",
-      "source": "git:github.com/aruru-project/pi-alu-sol-tuner",
+      "name": "Pi ALU Agent Tuner",
+      "source": "git:github.com/aruru-project/pi-alu-agent-tuner",
       "kind": "git",
-      "repositoryUrl": "https://github.com/aruru-project/pi-alu-sol-tuner"
+      "repositoryUrl": "https://github.com/aruru-project/pi-alu-agent-tuner"
     }
   ]
 }
