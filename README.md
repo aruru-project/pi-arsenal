@@ -33,6 +33,12 @@ Before bootstrapping, identify the target operating system, shell, filesystem pa
 3. Reload Pi's packages if the current runtime provides a reload action; otherwise exit and restart Pi.
 4. Ask Pi to show the available subagents. Confirm that the `pi-subagents` delegation capability is loaded and that the custom agents include `sol.worker` and `sol.reviewer`. Also check that the bundled skills, prompts, and extensions are discoverable before using the environment.
 
+## Music generation
+
+The bundled `music_gen` tool generates music through GMI or retrieves an existing request without resubmitting it. See [GMI music usage](./skills/gmi-music/SKILL.md) for local credential setup, Windows/POSIX permissions, and request recovery. Credentials and generated audio are not included in this package.
+
+Offline checks: `node --test test/gmi-music/music-gen.test.mjs`. The suite uses temporary fake credentials and mocked network responses; see the skill for Pi loader setup and the native credential-only test mode.
+
 ## Third-party material
 
 Bundled third-party resources retain their upstream licenses and attribution. See [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) and the license/notice files within the relevant skill directories.

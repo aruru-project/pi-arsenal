@@ -22,6 +22,7 @@
       "./extensions/show-image.ts",
       "./extensions/lmstudio-qwen38-tool-images.ts",
       "./extensions/azure-imagegen/index.ts",
+      "./extensions/music-gen.ts",
       "./extensions/alu-kanban/index.ts"
     ],
     "skills": [
