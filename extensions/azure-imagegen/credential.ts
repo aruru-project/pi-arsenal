@@ -1,8 +1,9 @@
-import { constants, type Stats } from "node:fs";
+import { constants } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { TextDecoder } from "node:util";
+import { assertPrivateWindowsAcl } from "./windows-acl.ts";
 
 const CREDENTIAL_NAME = "AZURE_IMAGE_API_KEY";
 const DIRECTORY_MODE = 0o700;
@@ -30,18 +31,18 @@ function errorCode(error: unknown): string | undefined {
 }
 
 function assertOwnedMode(
-  stats: Stats,
+  stats: Awaited<ReturnType<typeof lstat>>,
   expectedMode: number,
   kind: "directory" | "file",
 ): void {
   const uid = process.getuid?.();
   const correctType = kind === "directory" ? stats.isDirectory() : stats.isFile();
   if (
-    uid === undefined
-    || stats.isSymbolicLink()
+    stats.isSymbolicLink()
     || !correctType
-    || stats.uid !== uid
-    || (stats.mode & 0o777) !== expectedMode
+    || (process.platform !== "win32" && (
+      uid === undefined || stats.uid !== uid || (stats.mode & 0o777) !== expectedMode
+    ))
   ) {
     throw invalid();
   }
@@ -87,8 +88,8 @@ export async function resolveAzureImageApiKey(options: CredentialOptions = {}): 
 
   const directoryPath = options.credentialDirectory ?? join(homedir(), ".config", "alu-imagegen");
   const filePath = join(directoryPath, "env");
-  let directoryStats: Stats;
-  let fileStats: Stats;
+  let directoryStats: Awaited<ReturnType<typeof lstat>>;
+  let fileStats: Awaited<ReturnType<typeof lstat>>;
 
   try {
     directoryStats = await lstat(directoryPath);
@@ -101,17 +102,24 @@ export async function resolveAzureImageApiKey(options: CredentialOptions = {}): 
   assertOwnedMode(directoryStats, DIRECTORY_MODE, "directory");
   assertOwnedMode(fileStats, FILE_MODE, "file");
   if (fileStats.size > MAX_BYTES) throw invalid();
+  if (process.platform === "win32") {
+    try {
+      await assertPrivateWindowsAcl([directoryPath, filePath]);
+    } catch {
+      throw invalid();
+    }
+  }
 
   let handle: Awaited<ReturnType<typeof open>> | undefined;
   try {
-    handle = await open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    handle = await open(filePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     const openedStats = await handle.stat();
     if (
       !openedStats.isFile()
       || openedStats.dev !== fileStats.dev
       || openedStats.ino !== fileStats.ino
       || openedStats.uid !== fileStats.uid
-      || (openedStats.mode & 0o777) !== FILE_MODE
+      || (process.platform !== "win32" && (openedStats.mode & 0o777) !== FILE_MODE)
       || openedStats.size > MAX_BYTES
     ) {
       throw invalid();

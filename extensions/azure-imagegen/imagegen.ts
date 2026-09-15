@@ -4,9 +4,13 @@ import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { resolveAzureImageApiKey } from "./credential.ts";
+import { appendUsageEntry, readTokenUsage, usageLedgerPath } from "./usage-ledger.ts";
+import type { ImageGenLedgerEntry } from "./usage-ledger.ts";
 
 export const AZURE_BASE_URL = "https://us-001.services.ai.azure.com/openai/v1/";
 export const MODEL = "gpt-image-2";
+export const MODELS = [MODEL, "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"] as const;
+export type ImageModel = (typeof MODELS)[number];
 const MAX_INPUT_BYTES = 50 * 1024 * 1024;
 const MAX_ERROR_BYTES = 2048;
 const TIMEOUT_MS = 600_000;
@@ -15,19 +19,24 @@ const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0
 
 export interface ImageGenParams {
   prompt: string;
+  model?: ImageModel;
   image_paths?: string[];
   size?: string;
-  quality?: "low" | "medium" | "high" | "auto";
+  quality?: "low" | "medium" | "high" | "xhigh" | "max" | "auto";
+  background?: "auto" | "opaque" | "transparent";
   output_path?: string;
 }
 
 export interface ImageGenDetails {
   path: string;
   operation: "generation" | "edit";
-  model: typeof MODEL;
+  model: ImageModel;
   size: string;
   quality: string;
+  background?: ImageGenParams["background"];
   bytes: number;
+  usage_log_path?: string;
+  usage_log_warning?: string;
 }
 
 export interface ImageGenResult {
@@ -78,7 +87,14 @@ function validateSize(raw: string | undefined): string {
   return `${width}x${height}`;
 }
 
-function validateParams(params: ImageGenParams): { prompt: string; paths: string[]; size: string; quality: string } {
+function validateParams(params: ImageGenParams): {
+  prompt: string;
+  model: ImageModel;
+  paths: string[];
+  size: string;
+  quality: string;
+  background?: ImageGenParams["background"];
+} {
   const prompt = typeof params.prompt === "string" ? params.prompt.trim() : "";
   if (!prompt) throw new Error("prompt is required");
 
@@ -91,9 +107,21 @@ function validateParams(params: ImageGenParams): { prompt: string; paths: string
     if (!isAbsolute(path)) throw new Error("every image path must be an absolute local filesystem path");
   }
 
-  const quality = params.quality ?? "auto";
-  if (!["low", "medium", "high", "auto"].includes(quality)) throw new Error("quality is invalid");
-  return { prompt, paths: paths.map(cleanPath), size: validateSize(params.size), quality };
+  const model = params.model ?? MODEL;
+  if (!MODELS.includes(model)) throw new Error("model is invalid");
+  const quality = params.quality ?? "low";
+  if (!["low", "medium", "high", "xhigh", "max", "auto"].includes(quality)) throw new Error("quality is invalid");
+  const background = params.background;
+  if (background !== undefined && !["auto", "opaque", "transparent"].includes(background)) {
+    throw new Error("background is invalid");
+  }
+  if (model === MODEL && (quality === "xhigh" || quality === "max")) {
+    throw new Error("xhigh and max quality require a GPT Image 2.5 model");
+  }
+  if (model === MODEL && background === "transparent") {
+    throw new Error("transparent background requires a GPT Image 2.5 model");
+  }
+  return { prompt, model, paths: paths.map(cleanPath), size: validateSize(params.size), quality, background };
 }
 
 function detectMimeType(path: string, data: Buffer): PreparedImage["mimeType"] | undefined {
@@ -177,11 +205,12 @@ function redactAndBound(message: string, key: string): string {
   return redacted.slice(0, MAX_ERROR_BYTES);
 }
 
-async function apiError(response: Response, key: string): Promise<Error> {
+async function apiError(response: Response, key: string, ledger: ImageGenLedgerEntry): Promise<Error> {
   const body = await boundedResponseText(response);
   let message = body;
   try {
     const parsed = JSON.parse(body) as { error?: { message?: unknown; code?: unknown } };
+    Object.assign(ledger, readTokenUsage(parsed));
     message = typeof parsed.error?.message === "string"
       ? parsed.error.message
       : typeof parsed.error?.code === "string" ? parsed.error.code : body;
@@ -241,11 +270,11 @@ async function persistOutput(
   const directoryStats = await lstat(directory);
   const uid = process.getuid?.();
   if (
-    uid === undefined
-    || directoryStats.isSymbolicLink()
+    directoryStats.isSymbolicLink()
     || !directoryStats.isDirectory()
-    || directoryStats.uid !== uid
-    || (directoryStats.mode & 0o077) !== 0
+    || (process.platform !== "win32" && (
+      uid === undefined || directoryStats.uid !== uid || (directoryStats.mode & 0o077) !== 0
+    ))
   ) {
     throw new Error("default output directory is invalid");
   }
@@ -283,19 +312,21 @@ export async function executeImageGen(
   if (images.length === 0) {
     headers["Content-Type"] = "application/json";
     body = JSON.stringify({
-      model: MODEL,
+      model: validated.model,
       prompt: validated.prompt,
       size: validated.size,
       quality: validated.quality,
+      ...(validated.background !== undefined ? { background: validated.background } : {}),
       n: 1,
       output_format: "png",
     });
   } else {
     const form = new FormData();
-    form.append("model", MODEL);
+    form.append("model", validated.model);
     form.append("prompt", validated.prompt);
     form.append("size", validated.size);
     form.append("quality", validated.quality);
+    if (validated.background !== undefined) form.append("background", validated.background);
     form.append("n", "1");
     form.append("output_format", "png");
     const imageField = images.length === 1 ? "image" : "image[]";
@@ -305,49 +336,104 @@ export async function executeImageGen(
     body = form;
   }
 
-  let response: Response;
-  try {
-    response = await (dependencies.fetchFn ?? fetch)(`${AZURE_BASE_URL}${endpoint}`, {
-      method: "POST",
-      headers,
-      body,
-      signal: combineSignal(signal),
-    });
-  } catch (error) {
-    if (signal?.aborted) throw new Error("image generation cancelled");
-    const message = error instanceof Error ? error.message : "request failed";
-    throw new Error(`Azure image request failed: ${redactAndBound(message, key)}`);
-  }
-
-  if (!response.ok) throw await apiError(response, key);
-  let payload: { data?: Array<{ b64_json?: unknown }> };
-  try {
-    payload = await response.json() as typeof payload;
-  } catch {
-    throw new Error("Azure image API returned invalid JSON");
-  }
-  const encoded = payload.data?.[0]?.b64_json;
-  if (typeof encoded !== "string" || !encoded) throw new Error("Azure image API returned no image");
-  const image = Buffer.from(encoded, "base64");
-  if (image.byteLength === 0 || !image.subarray(0, 8).equals(PNG_SIGNATURE)) {
-    throw new Error("Azure image API returned invalid PNG data");
-  }
-
-  const path = await persistOutput(image, params.output_path, cwd, dependencies);
+  // Count API attempts, not local validation/credential failures. Append once on exit.
   const operation = images.length > 0 ? "edit" : "generation";
-  const details: ImageGenDetails = {
-    path,
+  const started = performance.now();
+  const ledgerPath = usageLedgerPath(dependencies.homeDirectory ?? homedir());
+  const ledger: ImageGenLedgerEntry = {
+    timestamp: new Date().toISOString(),
+    duration_ms: 0,
+    model: validated.model,
     operation,
-    model: MODEL,
     size: validated.size,
     quality: validated.quality,
-    bytes: image.byteLength,
+    background: validated.background ?? null,
+    reference_count: images.length,
+    status: "failed",
+    error_stage: "request",
+    http_status: null,
+    request_id: null,
+    output_path: null,
+    ...readTokenUsage(),
+    cost: null,
+    currency: null,
+    cost_source: "unknown",
   };
-  return {
-    content: [
-      { type: "text", text: `Created ${operation} PNG (${validated.size}, ${validated.quality}) at ${path}` },
-      { type: "image", data: image.toString("base64"), mimeType: "image/png" },
-    ],
-    details,
-  };
+  let result: ImageGenResult | undefined;
+  let failure: unknown;
+  try {
+    let response: Response;
+    try {
+      response = await (dependencies.fetchFn ?? fetch)(`${AZURE_BASE_URL}${endpoint}`, {
+        method: "POST",
+        headers,
+        body,
+        signal: combineSignal(signal),
+      });
+    } catch (error) {
+      if (signal?.aborted) throw new Error("image generation cancelled");
+      const message = error instanceof Error ? error.message : "request failed";
+      throw new Error(`Azure image request failed: ${redactAndBound(message, key)}`);
+    }
+
+    ledger.http_status = response.status;
+    const requestId = response.headers.get("x-request-id") ?? response.headers.get("apim-request-id");
+    ledger.request_id = requestId ? redactAndBound(requestId, key).slice(0, 160) : null;
+    ledger.error_stage = "response";
+    if (!response.ok) throw await apiError(response, key, ledger);
+    let payload: { data?: Array<{ b64_json?: unknown }> };
+    try {
+      payload = await response.json() as typeof payload;
+    } catch {
+      throw new Error("Azure image API returned invalid JSON");
+    }
+    Object.assign(ledger, readTokenUsage(payload));
+    const encoded = payload?.data?.[0]?.b64_json;
+    if (typeof encoded !== "string" || !encoded) throw new Error("Azure image API returned no image");
+    const image = Buffer.from(encoded, "base64");
+    if (image.byteLength === 0 || !image.subarray(0, 8).equals(PNG_SIGNATURE)) {
+      throw new Error("Azure image API returned invalid PNG data");
+    }
+
+    ledger.error_stage = "output";
+    const path = await persistOutput(image, params.output_path, cwd, dependencies);
+    ledger.output_path = path;
+    ledger.status = "success";
+    ledger.error_stage = null;
+    const details: ImageGenDetails = {
+      path,
+      operation,
+      model: validated.model,
+      size: validated.size,
+      quality: validated.quality,
+      ...(validated.background !== undefined ? { background: validated.background } : {}),
+      bytes: image.byteLength,
+    };
+    result = {
+      content: [
+        { type: "text", text: `Created ${operation} PNG with ${validated.model} (${validated.size}, ${validated.quality}) at ${path}` },
+        { type: "image", data: image.toString("base64"), mimeType: "image/png" },
+      ],
+      details,
+    };
+    return result;
+  } catch (error) {
+    ledger.status = signal?.aborted ? "cancelled" : "failed";
+    failure = error;
+    throw error;
+  } finally {
+    ledger.duration_ms = Math.round(performance.now() - started);
+    try {
+      await appendUsageEntry(ledgerPath, ledger);
+      if (result) result.details.usage_log_path = ledgerPath;
+    } catch {
+      const warning = `Warning: image usage log could not be written at ${ledgerPath}`;
+      if (result) {
+        result.details.usage_log_warning = warning;
+        result.content.push({ type: "text", text: warning });
+      } else if (failure instanceof Error) {
+        failure.message += `\n${warning}`;
+      }
+    }
+  }
 }
